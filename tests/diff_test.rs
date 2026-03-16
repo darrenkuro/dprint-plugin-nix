@@ -11,6 +11,7 @@ fn fmt(input: &str) -> String {
 }
 
 #[test]
+#[ignore] // Local-only: requires ~/.config/home-manager/home.nix
 fn diff_home_nix() {
     let path = format!("{}/.config/home-manager/home.nix", std::env::var("HOME").unwrap());
     let original = std::fs::read_to_string(&path).expect("Could not read home.nix");
