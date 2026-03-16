@@ -1,0 +1,10 @@
+{
+  "lineWidth": 100,
+  "indentWidth": 2,
+  "nix": {},
+  "includes": ["**/*.nix"],
+  "excludes": ["**/node_modules"],
+  "plugins": [
+    "file:///Users/darrenlu/Documents/dev/dprint-plugin-nix/target/wasm32-unknown-unknown/release/dprint_plugin_nix.wasm"
+  ]
+}
