@@ -1,7 +1,7 @@
 use dprint_core::formatting::{PrintItems, Signal};
 use rnix::{SyntaxKind, SyntaxNode};
 
-use super::helpers::{gen_container, ContainerSeparator};
+use super::helpers::gen_container;
 use super::gen_node;
 use crate::config::NixConfig;
 
@@ -74,5 +74,5 @@ pub fn gen_list(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
         }
     }
 
-    gen_container("[", "]", items_list, ContainerSeparator::SpaceOrNewline, config.indent_width)
+    gen_container("[", "]", items_list, config.indent_width)
 }

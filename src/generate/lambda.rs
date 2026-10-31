@@ -60,9 +60,17 @@ pub fn gen_lambda(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
     p
 }
 
+/// One element inside a pattern's braces: an entry (`a`, `b ? 1`, `...`) or a
+/// standalone comment. Trailing comments are kept apart so the comma can go before them.
+struct PatItem {
+    body: PrintItems,
+    trailing: PrintItems,
+    is_entry: bool,
+}
+
 /// Generate IR for pattern: `{ a, b ? default, ... }`
 pub fn gen_pattern(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
-    let mut items_list: Vec<PrintItems> = Vec::new();
+    let mut pat_items: Vec<PatItem> = Vec::new();
     let mut seen_open = false;
     let mut at_binding_before: Option<PrintItems> = None;
     let mut at_binding_after: Option<PrintItems> = None;
@@ -91,69 +99,86 @@ pub fn gen_pattern(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
             SyntaxKind::TOKEN_COMMENT => {
                 if seen_open && !after_close {
                     let text = child.as_token().unwrap().text().to_string();
-                    if !last_ws_had_newline && !items_list.is_empty() {
-                        let last = items_list.last_mut().unwrap();
-                        last.extend(super::comment::gen_trailing_comment(&text));
+                    if !last_ws_had_newline && !pat_items.is_empty() {
+                        let last = pat_items.last_mut().unwrap();
+                        last.trailing
+                            .extend(super::comment::gen_trailing_comment(&text));
                     } else {
-                        let mut comment_items = PrintItems::new();
+                        let mut body = PrintItems::new();
                         if blank_line_pending {
-                            comment_items.push_signal(Signal::NewLine);
+                            body.push_signal(Signal::NewLine);
                             blank_line_pending = false;
                         }
-                        comment_items.extend(super::comment::gen_comment(&text));
-                        items_list.push(comment_items);
+                        body.extend(super::comment::gen_comment(&text));
+                        pat_items.push(PatItem {
+                            body,
+                            trailing: PrintItems::new(),
+                            is_entry: false,
+                        });
                     }
                     last_ws_had_newline = true;
                 }
             }
-            SyntaxKind::TOKEN_COMMA => {} // Handled by container separator
-            SyntaxKind::TOKEN_AT => {}
-            SyntaxKind::TOKEN_ELLIPSIS => {
-                let mut item = PrintItems::new();
-                if blank_line_pending && !items_list.is_empty() {
-                    item.push_signal(Signal::NewLine);
-                    blank_line_pending = false;
+            SyntaxKind::TOKEN_COMMA => {} // Re-emitted after each entry below
+            SyntaxKind::NODE_PAT_BIND => {
+                // `name @` before `{`, or `@ name` after `}`
+                let name = child
+                    .as_node()
+                    .unwrap()
+                    .children()
+                    .find(|n| n.kind() == SyntaxKind::NODE_IDENT)
+                    .map(|n| n.text().to_string())
+                    .unwrap_or_default();
+                let mut binding = PrintItems::new();
+                if after_close {
+                    binding.push_str_runtime_width_computed(" @ ");
+                    binding.push_string(name);
+                    at_binding_after = Some(binding);
+                } else {
+                    binding.push_string(name);
+                    binding.push_str_runtime_width_computed(" @ ");
+                    at_binding_before = Some(binding);
                 }
-                item.push_str_runtime_width_computed("...");
-                items_list.push(item);
-                last_ws_had_newline = false;
             }
             _ => {
-                if !seen_open && !after_close {
-                    // Before `{` — this is `name @` binding
-                    if let Some(t) = child.as_token() {
-                        let mut binding = PrintItems::new();
-                        binding.push_string(t.text().to_string());
-                        binding.push_str_runtime_width_computed(" @ ");
-                        at_binding_before = Some(binding);
+                if seen_open && !after_close {
+                    let mut body = PrintItems::new();
+                    if blank_line_pending && !pat_items.is_empty() {
+                        body.push_signal(Signal::NewLine);
                     }
-                } else if after_close {
-                    // After `}` — this is `@ name` binding
-                    if let Some(t) = child.as_token() {
-                        let mut binding = PrintItems::new();
-                        binding.push_str_runtime_width_computed(" @ ");
-                        binding.push_string(t.text().to_string());
-                        at_binding_after = Some(binding);
+                    blank_line_pending = false;
+                    if let Some(child_node) = child.as_node() {
+                        body.extend(gen_node(child_node, config));
+                    } else if let Some(t) = child.as_token() {
+                        // TOKEN_ELLIPSIS
+                        body.push_string(t.text().to_string());
                     }
-                } else if let Some(child_node) = child.as_node() {
-                    let mut item = PrintItems::new();
-                    if blank_line_pending && !items_list.is_empty() {
-                        item.push_signal(Signal::NewLine);
-                        blank_line_pending = false;
-                    }
-                    item.extend(gen_node(child_node, config));
-                    items_list.push(item);
-                } else if let Some(t) = child.as_token() {
-                    if !super::helpers::is_trivial_token(child.kind()) {
-                        let mut item = PrintItems::new();
-                        item.push_string(t.text().to_string());
-                        items_list.push(item);
-                    }
+                    pat_items.push(PatItem {
+                        body,
+                        trailing: PrintItems::new(),
+                        is_entry: true,
+                    });
                 }
                 last_ws_had_newline = false;
             }
         }
     }
+
+    // Commas live inside each entry (not in the container separator): dprint-core only
+    // emits the separator in single-line mode, so a wrapped pattern would lose them.
+    let last_entry = pat_items.iter().rposition(|item| item.is_entry);
+    let items_list = pat_items
+        .into_iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let mut p = item.body;
+            if item.is_entry && Some(i) != last_entry {
+                p.push_str_runtime_width_computed(",");
+            }
+            p.extend(item.trailing);
+            p
+        })
+        .collect();
 
     let mut p = PrintItems::new();
 
@@ -165,7 +190,6 @@ pub fn gen_pattern(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
         "{",
         "}",
         items_list,
-        super::helpers::ContainerSeparator::CommaSpaceOrNewline,
         config.indent_width,
     ));
 

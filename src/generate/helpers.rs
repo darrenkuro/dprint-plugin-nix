@@ -6,11 +6,12 @@ use rnix::SyntaxKind;
 
 /// Create a group that tries to fit on one line, expanding to multi-line if it doesn't fit.
 /// Uses gen_separated_values for proper all-or-nothing break decisions (Wadler-style groups).
+/// Items are separated by whitespace only: any punctuation (e.g. pattern commas) must be part
+/// of the items themselves, since gen_separated_values drops the separator in multi-line mode.
 pub fn gen_container(
     open: &'static str,
     close: &'static str,
     items: Vec<PrintItems>,
-    separator: ContainerSeparator,
     indent_width: u8,
 ) -> PrintItems {
     let mut p = PrintItems::new();
@@ -23,18 +24,6 @@ pub fn gen_container(
     }
 
     p.push_str_runtime_width_computed(open);
-
-    let single_line_separator = match separator {
-        ContainerSeparator::SpaceOrNewline => {
-            Signal::SpaceOrNewLine.into()
-        }
-        ContainerSeparator::CommaSpaceOrNewline => {
-            let mut sep = PrintItems::new();
-            sep.push_str_runtime_width_computed(",");
-            sep.push_signal(Signal::SpaceOrNewLine);
-            sep
-        }
-    };
 
     let result = ir_helpers::gen_separated_values(
         |_is_multi_line_ref| {
@@ -51,7 +40,7 @@ pub fn gen_container(
             single_line_options: SingleLineOptions {
                 space_at_start: true,
                 space_at_end: true,
-                separator: single_line_separator,
+                separator: Signal::SpaceOrNewLine.into(),
             },
             multi_line_options: MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
@@ -61,11 +50,6 @@ pub fn gen_container(
     p.extend(result.items);
     p.push_str_runtime_width_computed(close);
     p
-}
-
-pub enum ContainerSeparator {
-    SpaceOrNewline,
-    CommaSpaceOrNewline,
 }
 
 /// Check if a SyntaxKind is a token that should be skipped (whitespace/comments)

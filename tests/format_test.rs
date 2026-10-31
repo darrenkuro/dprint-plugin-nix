@@ -313,3 +313,50 @@ fn inherit_with_comment() {
     let second = fmt(&result);
     assert_eq!(result, second, "Not idempotent");
 }
+
+/// Format, assert the exact output, and assert a second pass is a no-op (issue #1).
+fn assert_fmt_stable(input: &str, expected: &str) {
+    let first = fmt(input);
+    assert_eq!(first, expected);
+    assert_eq!(fmt(&first), first, "Not idempotent");
+}
+
+#[test]
+fn pattern_long_wraps_with_commas() {
+    // 106 chars: must wrap one entry per line and keep the commas
+    let input = "{ config, lib, pkgs, claude-plugins-official, obsidian-skills, remotion-skills, claude-config, ... }: let\n  x = 1;\nin\n{ y = x; }\n";
+    let expected = "{\n  config,\n  lib,\n  pkgs,\n  claude-plugins-official,\n  obsidian-skills,\n  remotion-skills,\n  claude-config,\n  ...\n}: let\n  x = 1;\nin\n{ y = x; }\n";
+    assert_fmt_stable(input, expected);
+}
+
+#[test]
+fn pattern_handwritten_multiline() {
+    // Fits in lineWidth, so it collapses to one line
+    assert_fmt_stable("{\n  a,\n  b,\n  ...\n}: a\n", "{ a, b, ... }: a\n");
+}
+
+#[test]
+fn pattern_defaults_and_ellipsis_wrapped() {
+    let input = "{ alpha ? 1, beta ? \"some-default-string\", gamma ? [ 1 2 3 ], delta-long-name ? null, epsilon, ... }: alpha\n";
+    let expected = "{\n  alpha ? 1,\n  beta ? \"some-default-string\",\n  gamma ? [ 1 2 3 ],\n  delta-long-name ? null,\n  epsilon,\n  ...\n}: alpha\n";
+    assert_fmt_stable(input, expected);
+}
+
+#[test]
+fn pattern_comments_keep_commas_before_comment() {
+    let input = "{ a, # first\n  b ? 1, # second\n  # standalone\n  c,\n  ...\n}: a\n";
+    let expected = "{\n  a, # first\n  b ? 1, # second\n  # standalone\n  c,\n  ...\n}: a\n";
+    assert_fmt_stable(input, expected);
+}
+
+#[test]
+fn pattern_at_binding_preserved() {
+    assert_fmt_stable(
+        "args@{ a, b ? 1, ... }: a\n",
+        "args @ { a, b ? 1, ... }: a\n",
+    );
+    assert_fmt_stable("{ a, ... }@args: a\n", "{ a, ... } @ args: a\n");
+    let input = "args@{ config, lib, pkgs, claude-plugins-official, obsidian-skills, remotion-skills, claude-config, ... }: args\n";
+    let expected = "args @ {\n  config,\n  lib,\n  pkgs,\n  claude-plugins-official,\n  obsidian-skills,\n  remotion-skills,\n  claude-config,\n  ...\n}: args\n";
+    assert_fmt_stable(input, expected);
+}

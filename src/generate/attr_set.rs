@@ -1,7 +1,7 @@
 use dprint_core::formatting::{PrintItems, Signal};
 use rnix::{SyntaxKind, SyntaxNode};
 
-use super::helpers::{gen_container, ContainerSeparator};
+use super::helpers::gen_container;
 use super::gen_node;
 use crate::config::NixConfig;
 
@@ -66,5 +66,5 @@ pub fn gen_attr_set(node: &SyntaxNode, config: &NixConfig) -> PrintItems {
     }
 
     let open = if has_rec { "rec {" } else { "{" };
-    gen_container(open, "}", items_list, ContainerSeparator::SpaceOrNewline, config.indent_width)
+    gen_container(open, "}", items_list, config.indent_width)
 }
